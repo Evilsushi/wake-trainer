@@ -171,6 +171,24 @@ try:
     torch.onnx.export = _export_legacy
 except Exception:
     pass
+
+# DeepPhonemizer (adversarial negatives for words outside CMUdict) ships a
+# pickled checkpoint, and torch>=2.6 defaults torch.load to weights_only=True.
+# Allowlist just the three dp classes it needs rather than turning the safety
+# check off wholesale.
+try:
+    import torch
+    from dp.preprocessing.text import (
+        LanguageTokenizer,
+        Preprocessor,
+        SequenceTokenizer,
+    )
+
+    torch.serialization.add_safe_globals(
+        [Preprocessor, LanguageTokenizer, SequenceTokenizer]
+    )
+except Exception:
+    pass
 PYEOF
 
 # feature extraction needs the shared oww frontend models in the package tree
