@@ -1,0 +1,13 @@
+[retry 12:39:43] batch finished, retraining 2 words
+[retry 12:39:43] === hey_codex ('hey codex') ===
+[retry 12:51:23] hey_codex OK -> models/hey_codex.onnx
+[retry 12:51:23] === hey_grok ('hey grok') ===
+[retry 13:02:13] hey_grok OK -> models/hey_grok.onnx
+[retry 13:02:13] retries done
+total 1.2M
+-rw-r--r-- 1 brian brian 201K Aug  7 11:44 hey_claude.onnx
+-rw-r--r-- 1 brian brian 201K Aug  7 12:51 hey_codex.onnx
+-rw-r--r-- 1 brian brian 201K Aug  7 12:26 hey_copilot.onnx
+-rw-r--r-- 1 brian brian 201K Aug  7 12:09 hey_gemini.onnx
+-rw-r--r-- 1 brian brian 201K Aug  7 12:39 hey_genie.onnx
+-rw-r--r-- 1 brian brian 201K Aug  7 13:02 hey_grok.onnx

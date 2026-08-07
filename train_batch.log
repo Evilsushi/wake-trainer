@@ -1,0 +1,17 @@
+[batch 11:56:20] training 5 words sequentially
+[batch 11:56:20] === hey_gemini ('hey gemini') ===
+[batch 12:09:28] hey_gemini OK -> models/hey_gemini.onnx
+[batch 12:09:28] === hey_codex ('hey codex') ===
+[batch 12:12:06] hey_codex FAILED (exit 0) - see train_hey_codex.log
+[batch 12:12:06] === hey_copilot ('hey copilot') ===
+[batch 12:26:21] hey_copilot OK -> models/hey_copilot.onnx
+[batch 12:26:21] === hey_grok ('hey grok') ===
+[batch 12:28:31] hey_grok FAILED (exit 0) - see train_hey_grok.log
+[batch 12:28:31] === hey_genie ('hey genie') ===
+[batch 12:39:33] hey_genie OK -> models/hey_genie.onnx
+[batch 12:39:33] done in 43 min
+total 816K
+-rw-r--r-- 1 brian brian 201K Aug  7 11:44 hey_claude.onnx
+-rw-r--r-- 1 brian brian 201K Aug  7 12:26 hey_copilot.onnx
+-rw-r--r-- 1 brian brian 201K Aug  7 12:09 hey_gemini.onnx
+-rw-r--r-- 1 brian brian 201K Aug  7 12:39 hey_genie.onnx
