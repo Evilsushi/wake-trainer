@@ -1,3 +1,9 @@
+> **Historical.** These are the original working notes from the VoiceBox
+> project, written before this trainer was split out. They describe wiring
+> trained models into VoiceBox and reference paths on the machine they were
+> written on, so treat them as context rather than instructions. For how to
+> use the trainer, see the README.
+
 # Wake-word training — handoff
 
 Recovered 2026-08-07 after the driving agent session crashed mid-training.
