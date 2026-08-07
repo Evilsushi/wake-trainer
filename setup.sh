@@ -38,6 +38,30 @@ $pip -q install -e ./piper-sample-generator
 # openWakeWord's train.py imports the old v1/v2 generate_samples module
 cp generate_samples_shim.py piper-sample-generator/generate_samples.py
 
+log "post-install fixes"
+# train.py needs these but no package declares them
+$pip -q install torchinfo pronouncing
+# piper-sample-generator's torchaudio dep resolves to the CUDA build on pypi;
+# re-pin both to CPU wheels (must run after every package install above)
+$pip -q install --force-reinstall torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# acoustics uses scipy.special.sph_harm, removed in scipy 1.15
+$py - <<'PYEOF'
+from pathlib import Path
+p = next(Path(".venv/lib").glob("python*/site-packages/acoustics/directivity.py"))
+src = p.read_text()
+old = "from scipy.special import sph_harm  # pylint: disable=no-name-in-module"
+new = """try:
+    from scipy.special import sph_harm  # pylint: disable=no-name-in-module
+except ImportError:  # scipy >= 1.15 removed sph_harm
+    from scipy.special import sph_harm_y
+
+    def sph_harm(m, n, theta, phi):
+        return sph_harm_y(n, m, phi, theta)"""
+if "sph_harm_y" not in src:
+    p.write_text(src.replace(old, new))
+    print("patched acoustics")
+PYEOF
+
 mkdir -p data models
 if [[ ! -f piper-sample-generator/models/en_US-libritts_r-medium.pt ]]; then
   log "downloading piper TTS checkpoint (multi-speaker LibriTTS-R)"
