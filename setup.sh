@@ -191,11 +191,21 @@ except Exception:
     pass
 PYEOF
 
-# feature extraction needs the shared oww frontend models in the package tree
+# Feature extraction needs the frozen openWakeWord frontend (melspectrogram +
+# embedding) in the package tree. These are the same two files any openWakeWord
+# runtime loads, so if you already have them locally point OWW_FRONTEND_DIR at
+# that directory to skip the download; otherwise they come from upstream.
 mkdir -p openWakeWord/openwakeword/resources/models
-cp ../../../EchoDot2Liberator/rust/edotd/models/melspectrogram.onnx \
-   ../../../EchoDot2Liberator/rust/edotd/models/embedding_model.onnx \
-   openWakeWord/openwakeword/resources/models/ 2>/dev/null \
-  || .venv/bin/python -c "import openwakeword.utils as u; u.download_models()"
+if [[ -n "${OWW_FRONTEND_DIR:-}" \
+      && -f "$OWW_FRONTEND_DIR/melspectrogram.onnx" \
+      && -f "$OWW_FRONTEND_DIR/embedding_model.onnx" ]]; then
+  log "using frontend models from $OWW_FRONTEND_DIR"
+  cp "$OWW_FRONTEND_DIR/melspectrogram.onnx" \
+     "$OWW_FRONTEND_DIR/embedding_model.onnx" \
+     openWakeWord/openwakeword/resources/models/
+else
+  log "downloading openWakeWord frontend models"
+  .venv/bin/python -c "import openwakeword.utils as u; u.download_models()"
+fi
 
 log "setup complete"

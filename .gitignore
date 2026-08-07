@@ -1,0 +1,23 @@
+# Vendored upstream checkouts - setup.sh clones these
+openWakeWord/
+piper-sample-generator/
+
+# Python env
+.venv/
+__pycache__/
+*.pyc
+
+# Training corpora (~17G: ACAV100M negative features, RIRs, noise)
+data/
+
+# Per-word training output (clips, features, checkpoints)
+work/
+
+# Trained classifiers - artifacts, not source
+models/
+*.onnx
+*.tflite
+
+# Run logs
+train_*.log
+setup.log
