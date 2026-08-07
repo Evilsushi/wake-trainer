@@ -42,8 +42,9 @@ log "post-install fixes"
 # train.py needs these but no package declares them
 $pip -q install torchinfo pronouncing
 # piper-sample-generator's torchaudio dep resolves to the CUDA build on pypi;
-# re-pin both to CPU wheels (must run after every package install above)
-$pip -q install --force-reinstall torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# re-pin the torch stack to CPU wheels (must run after every package install
+# above). torchcodec is torchaudio's I/O backend now and has the same trap.
+$pip -q install --force-reinstall torch torchaudio torchcodec --index-url https://download.pytorch.org/whl/cpu
 # acoustics uses scipy.special.sph_harm, removed in scipy 1.15
 $py - <<'PYEOF'
 from pathlib import Path
@@ -115,5 +116,12 @@ for i in range(200):
 print("wrote 200 noise beds")
 PYEOF
 fi
+
+# feature extraction needs the shared oww frontend models in the package tree
+mkdir -p openWakeWord/openwakeword/resources/models
+cp ../../../EchoDot2Liberator/rust/edotd/models/melspectrogram.onnx \
+   ../../../EchoDot2Liberator/rust/edotd/models/embedding_model.onnx \
+   openWakeWord/openwakeword/resources/models/ 2>/dev/null \
+  || .venv/bin/python -c "import openwakeword.utils as u; u.download_models()"
 
 log "setup complete"
