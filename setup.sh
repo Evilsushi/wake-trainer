@@ -41,7 +41,10 @@ cp generate_samples_shim.py piper-sample-generator/generate_samples.py
 log "post-install fixes"
 # train.py needs these but no package declares them
 # onnxscript: torch>=2.9's torch.onnx.export imports it even on the legacy path
-$pip -q install torchinfo pronouncing onnxscript
+# deep-phonemizer: adversarial-negative generation falls back to it for any
+# word outside CMUdict, so "codex"/"grok" need it but "gemini"/"claude" do not.
+# Easy to miss - the first few wake words train fine without it.
+$pip -q install torchinfo pronouncing onnxscript deep-phonemizer
 # piper-sample-generator's torchaudio dep resolves to the CUDA build on pypi;
 # re-pin the torch stack to CPU wheels (must run after every package install
 # above). torchcodec is torchaudio's I/O backend now and has the same trap.

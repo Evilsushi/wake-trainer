@@ -25,7 +25,9 @@ for entry in "${words[@]}"; do
   if ./train_word.sh "$phrase" "$name" > "train_$name.log" 2>&1; then
     echo "[batch $(date +%H:%M:%S)] $name OK -> models/$name.onnx"
   else
-    echo "[batch $(date +%H:%M:%S)] $name FAILED (exit $?) - see train_$name.log" >&2
+    # capture before the $(date) below resets $?
+    rc=$?
+    echo "[batch $(date +%H:%M:%S)] $name FAILED (exit $rc) - see train_$name.log" >&2
   fi
 done
 
