@@ -41,7 +41,7 @@ false_positive_validation_data_path: "$PWD/data/validation_set_features.npy"
 feature_data_files:
   "ACAV100M_sample": "$PWD/data/openwakeword_features_ACAV100M_2000_hrs_16bit.npy"
 batch_n_per_class:
-  "ACAV100M_sample": 1024
+  "ACAV100M_sample": 512
   "adversarial_negative": 50
   "positive": 50
 model_type: "dnn"
@@ -56,7 +56,10 @@ $py openWakeWord/openwakeword/train.py --training_config "work/$name.yml" --gene
 log "phase 2/3: augmenting clips and computing features"
 $py openWakeWord/openwakeword/train.py --training_config "work/$name.yml" --augment_clips
 log "phase 3/3: training classifier"
-$py openWakeWord/openwakeword/train.py --training_config "work/$name.yml" --train_model
+# train.py writes the onnx and *then* tries a tflite conversion that needs
+# onnx_tf (pulls in tensorflow). edotd loads onnx via tract, so tflite is dead
+# weight - let that step fail and gate success on the onnx existing below.
+$py openWakeWord/openwakeword/train.py --training_config "work/$name.yml" --train_model || true
 
 found=$(find "work/$name" -name "*.onnx" | head -1)
 if [[ -n "$found" ]]; then

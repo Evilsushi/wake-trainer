@@ -40,7 +40,8 @@ cp generate_samples_shim.py piper-sample-generator/generate_samples.py
 
 log "post-install fixes"
 # train.py needs these but no package declares them
-$pip -q install torchinfo pronouncing
+# onnxscript: torch>=2.9's torch.onnx.export imports it even on the legacy path
+$pip -q install torchinfo pronouncing onnxscript
 # piper-sample-generator's torchaudio dep resolves to the CUDA build on pypi;
 # re-pin the torch stack to CPU wheels (must run after every package install
 # above). torchcodec is torchaudio's I/O backend now and has the same trap.
@@ -148,6 +149,24 @@ import multiprocessing
 try:
     multiprocessing.set_start_method("fork", force=True)
 except RuntimeError:
+    pass
+
+# torch>=2.9 routes torch.onnx.export through the dynamo exporter, which emits
+# opset 18 and only *logs* the failure to down-convert to the requested opset.
+# edotd runs tract-onnx 0.23.4 and the stock oww models are opset 13, so an
+# opset 18 export trains fine and then fails to load. Pin the legacy exporter,
+# which honours opset_version for real.
+try:
+    import torch
+
+    _export = torch.onnx.export
+
+    def _export_legacy(*a, **kw):
+        kw.setdefault("dynamo", False)
+        return _export(*a, **kw)
+
+    torch.onnx.export = _export_legacy
+except Exception:
     pass
 PYEOF
 
