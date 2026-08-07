@@ -24,13 +24,19 @@ if [[ ! -d openWakeWord ]]; then
   log "cloning openWakeWord"
   git clone -q https://github.com/dscripka/openWakeWord
 fi
-$pip -q install -e ./openWakeWord
+# --no-deps: openwakeword pins speexdsp-ns (inference-only noise suppression)
+# which has no wheel for this python; training does not need it.
+$pip -q install --no-deps -e ./openWakeWord
+$pip -q install scikit-learn requests scipy tqdm
 
 if [[ ! -d piper-sample-generator ]]; then
   log "cloning piper-sample-generator"
   git clone -q https://github.com/rhasspy/piper-sample-generator
-  $pip -q install -r piper-sample-generator/requirements.txt || true
 fi
+# v3 is a proper package (piper-tts, webrtcvad, audiomentations deps)
+$pip -q install -e ./piper-sample-generator
+# openWakeWord's train.py imports the old v1/v2 generate_samples module
+cp generate_samples_shim.py piper-sample-generator/generate_samples.py
 
 mkdir -p data models
 if [[ ! -f piper-sample-generator/models/en_US-libritts_r-medium.pt ]]; then
