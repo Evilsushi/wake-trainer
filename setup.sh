@@ -117,6 +117,31 @@ print("wrote 200 noise beds")
 PYEOF
 fi
 
+# torch_audiomentations calls torchaudio.info, removed in torchaudio's
+# torchcodec era; provide it via soundfile through sitecustomize
+cat > "$(ls -d .venv/lib/python*/site-packages)/sitecustomize.py" <<'PYEOF'
+try:
+    import torchaudio
+except Exception:
+    pass
+else:
+    if not hasattr(torchaudio, "info"):
+        import collections
+
+        _AudioMetaData = collections.namedtuple(
+            "AudioMetaData",
+            ["sample_rate", "num_frames", "num_channels", "bits_per_sample", "encoding"],
+        )
+
+        def _info(filepath, *args, **kwargs):
+            import soundfile
+
+            meta = soundfile.info(str(filepath))
+            return _AudioMetaData(meta.samplerate, meta.frames, meta.channels, 16, "PCM_S")
+
+        torchaudio.info = _info
+PYEOF
+
 # feature extraction needs the shared oww frontend models in the package tree
 mkdir -p openWakeWord/openwakeword/resources/models
 cp ../../../EchoDot2Liberator/rust/edotd/models/melspectrogram.onnx \
