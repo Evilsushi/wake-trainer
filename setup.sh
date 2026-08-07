@@ -59,17 +59,15 @@ fi
 
 if [[ ! -d data/mit_rirs ]]; then
   log "fetching MIT room impulse responses"
-  $py - <<'PYEOF'
-import datasets, soundfile, pathlib
-out = pathlib.Path("data/mit_rirs"); out.mkdir(parents=True, exist_ok=True)
-ds = datasets.load_dataset("davidscripka/MIT_environmental_impulse_responses", split="train", streaming=True)
-n = 0
-for row in ds:
-    audio = row["audio"]
-    soundfile.write(out / f"rir_{n:04d}.wav", audio["array"], audio["sampling_rate"])
-    n += 1
-print("wrote", n, "RIRs")
-PYEOF
+  # plain 16k wavs in the repo; direct download avoids the datasets/torchcodec
+  # audio-decoding machinery entirely
+  mkdir -p data/mit_rirs
+  curl -s "https://huggingface.co/api/datasets/davidscripka/MIT_environmental_impulse_responses/tree/main/16khz" \
+    | $py -c "import json,sys; [print(f['path']) for f in json.load(sys.stdin)]" \
+    | xargs -P 8 -I{} curl -fsSL -o "data/mit_rirs/{}" --create-dirs \
+        "https://huggingface.co/datasets/davidscripka/MIT_environmental_impulse_responses/resolve/main/{}"
+  mv data/mit_rirs/16khz/*.wav data/mit_rirs/ && rmdir data/mit_rirs/16khz
+  log "downloaded $(ls data/mit_rirs | wc -l) RIRs"
 fi
 
 if [[ ! -d data/noise ]]; then
