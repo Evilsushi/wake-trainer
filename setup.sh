@@ -140,6 +140,15 @@ else:
             return _AudioMetaData(meta.samplerate, meta.frames, meta.channels, 16, "PCM_S")
 
         torchaudio.info = _info
+
+# Python 3.14 defaults POSIX multiprocessing to forkserver, which requires
+# picklable worker args; openWakeWord's DataLoader uses lambdas. Use fork.
+import multiprocessing
+
+try:
+    multiprocessing.set_start_method("fork", force=True)
+except RuntimeError:
+    pass
 PYEOF
 
 # feature extraction needs the shared oww frontend models in the package tree
