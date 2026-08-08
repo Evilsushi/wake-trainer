@@ -53,6 +53,24 @@ YAML
 
 log "phase 1/3: generating clips (positives + adversarial negatives) - the slow part"
 $py openWakeWord/openwakeword/train.py --training_config "work/$name.yml" --generate_clips
+# Before spending ~15 minutes training on them, check the clips actually say the
+# phrase. hey_copilot trained fine on audio that said "hey cope islet", scored
+# 73.6% on its own held-out set, and never once fired for a human voice. Set
+# SKIP_VERIFY=1 to bypass, or WHISPER_HOST/WHISPER_PORT to point elsewhere; a
+# missing Whisper skips the check rather than failing the run.
+if [[ "${SKIP_VERIFY:-0}" != "1" ]]; then
+  log "verifying the TTS is saying '$phrase'"
+  set +e
+  $py verify_clips.py "$phrase" "$name" \
+    --host "${WHISPER_HOST:-127.0.0.1}" --port "${WHISPER_PORT:-10300}"
+  verify_rc=$?
+  set -e
+  if [[ $verify_rc -eq 1 ]]; then
+    log "aborting: clips do not say '$phrase' - training them would waste the run" >&2
+    exit 1
+  fi
+fi
+
 log "phase 2/3: augmenting clips and computing features"
 $py openWakeWord/openwakeword/train.py --training_config "work/$name.yml" --augment_clips
 log "phase 3/3: training classifier"
