@@ -1,0 +1,14 @@
+# Confusables for "okay ziggy". The first two are what Whisper heard in the
+# pre-training screen; the rest are near-rhymes on "ziggy".
+okay zeke
+okay z
+okay piggy
+okay jiggy
+okay biggie
+okay iggy
+okay siggy
+okay sticky
+okay easy
+okay zippy
+okay dizzy
+okay busy

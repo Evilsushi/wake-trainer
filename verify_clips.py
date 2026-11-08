@@ -17,7 +17,9 @@ we asked for. Speech-to-text is an independent oracle — the same trick that
 makes the Rust ports verifiable, applied to the data instead of the code.
 
 Speaks the Wyoming protocol directly over a socket (JSON header line, then the
-data blob, then the payload) so the trainer gains no new dependency.
+data blob, then the payload) so the trainer gains no new dependency. When no
+Wyoming server is reachable it falls back to running Whisper in-process via
+transformers (on the GPU if there is one); --local forces that path.
 
     ./verify_clips.py "hey claude" hey_claude
     ./verify_clips.py "hey claude" hey_claude --samples 25 --host 10.0.0.5
@@ -91,6 +93,34 @@ def transcribe(path: Path, host: str, port: int, timeout: float) -> str:
                 return (ev[1].get("text") or "").strip()
 
 
+class LocalWhisper:
+    """In-process fallback for boxes with no Wyoming server. transformers rides
+    on the torch already in the venv, so this costs one package, not a second
+    CUDA stack the way faster-whisper/ctranslate2 would."""
+
+    def __init__(self, model: str):
+        import torch
+        from transformers import pipeline
+
+        cuda = torch.cuda.is_available()
+        self.asr = pipeline("automatic-speech-recognition", model=model,
+                            device=0 if cuda else -1,
+                            dtype=torch.float16 if cuda else torch.float32)
+        # *.en checkpoints reject language/task outright
+        self.kwargs = ({} if model.endswith(".en")
+                       else {"generate_kwargs": {"language": "en", "task": "transcribe"}})
+
+    def __call__(self, path: Path) -> str:
+        import numpy as np
+
+        with wave.open(str(path), "rb") as w:
+            rate = w.getframerate()
+            pcm = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+        audio = pcm.astype(np.float32) / 32768.0
+        out = self.asr({"raw": audio, "sampling_rate": rate}, **self.kwargs)
+        return (out.get("text") or "").strip()
+
+
 def normalise(s: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", s.lower()).strip()
 
@@ -132,6 +162,9 @@ def main() -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=10300)
     ap.add_argument("--timeout", type=float, default=30.0)
+    ap.add_argument("--local", action="store_true",
+                    help="skip Wyoming and transcribe in-process")
+    ap.add_argument("--local-model", default="openai/whisper-large-v3-turbo")
     ap.add_argument("--max-extra-words", type=float, default=0.5,
                     help="fail if the median transcript exceeds the phrase's own "
                          "word count by more than this")
@@ -146,13 +179,28 @@ def main() -> int:
     step = max(1, len(clips) // args.samples)
     sample = clips[::step][:args.samples]
 
+    stt = None
+    if not args.local:
+        try:
+            socket.create_connection((args.host, args.port), timeout=2).close()
+            stt = lambda c: transcribe(c, args.host, args.port, args.timeout)
+        except OSError as e:
+            print(f"[verify] no Wyoming Whisper at {args.host}:{args.port} ({e}); "
+                  "trying local", file=sys.stderr)
+    if stt is None:
+        try:
+            stt = LocalWhisper(args.local_model)
+        except Exception as e:  # missing transformers, no weights, offline...
+            print(f"[verify] local Whisper unavailable ({e}); skipping check", file=sys.stderr)
+            return 2
+        print(f"[verify] transcribing locally with {args.local_model}")
+
     rows = []
     for c in sample:
         try:
-            heard = transcribe(c, args.host, args.port, args.timeout)
+            heard = stt(c)
         except (OSError, socket.timeout) as e:
-            print(f"[verify] cannot reach Whisper at {args.host}:{args.port} ({e}); skipping check",
-                  file=sys.stderr)
+            print(f"[verify] transcription failed ({e}); skipping check", file=sys.stderr)
             return 2
         rows.append((word_count(heard), similarity(args.phrase, heard), heard))
 

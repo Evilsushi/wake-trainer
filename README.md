@@ -30,15 +30,20 @@ into those 96-dim embeddings; `setup.sh` fetches them.
 
 ## Requirements
 
-- Linux, Python 3.12+ (tested on 3.14)
-- **~20 GB disk** — the negative feature bank alone is 17 GB
+- Linux, Python 3.12+ (tested on 3.14); `uv` is used if present
+- **~35 GB disk** — the negative feature bank is 17 GB, MUSAN background
+  audio ~12 GB extracted (`MUSAN=0 ./setup.sh` skips it)
 - **~8 GB free RAM** during training (see "Memory")
-- No GPU required; CPU-only throughout
+- NVIDIA GPU optional but used when present. `setup.sh` installs the cu130
+  torch stack (sm_120 kernels, so RTX 50xx / Blackwell works) plus
+  onnxruntime-gpu; TTS, feature extraction and the classifier all move to
+  CUDA. `TORCH_INDEX=cpu ./setup.sh` builds the old CPU-only environment.
+  Tested on an RTX 5080 (16 GB) under WSL2.
 
 ## Quickstart
 
 ```bash
-./setup.sh                              # one-time: venv, clones, ~17.5G download
+./setup.sh                              # one-time: venv, clones, ~29G download
 ./train_word.sh "hey jarvis" hey_jarvis # -> models/hey_jarvis.onnx
 ```
 
@@ -66,10 +71,39 @@ Everything lives in the heredoc config inside `train_word.sh`:
 
 | Setting | Here | Upstream reference | Effect |
 |---|---|---|---|
-| `n_samples` | 3000 | 10000 | Positive clips. **The main quality lever.** |
+| `n_samples` | 10000 | 10000 | Positive clips. **The main quality lever.** (3000 on the old CPU box) |
 | `steps` | 20000 | 50000 | Training steps |
 | `batch_n_per_class` | 512 | 1024 | Batch size — raise only if RAM allows |
 | `layer_size` | 32 | 32 | Classifier width |
+
+Most of these are env vars on `train_word.sh`: `N_SAMPLES`, `N_VAL`, `STEPS`,
+`NEG_BATCH` (`batch_n_per_class`), and `TTS_BATCH` / `AUG_BATCH` (default
+64 / 32, sized for a GPU — use 32 / 16 on CPU). `MAX_NEG_WEIGHT` (default
+1500) caps the negative-loss ramp; upstream doubles it for each later training
+sequence that misses the false-positive target, so with real background audio
+and custom negatives it can overshoot into a model that never fires.
+`okay_gizmo` went from 36.6% to 57.2% recall at 0.5 when lowered to 500, at
+0.37 false fires/hour. Compare runs with `./eval_models.py <name> <model>...`,
+which scores every model on the same held-out set.
+
+Background audio for augmentation is MUSAN music, noise and babble
+(`data/background/`), falling back to synthetic noise beds when absent.
+
+Per-word confusables go in `negatives/<name>.txt`, one phrase per line. They
+are repeated to `NEG_SHARE_PCT` (default 20) percent of the adversarial
+negatives — upstream would otherwise use each one roughly once among ~10,000
+generated phrases. Seed it from what Whisper mishears the phrase as in the
+verify step.
+
+Words missing from CMUdict need a line in `pronunciations.txt` (CMUdict
+format). Upstream's fallback, DeepPhonemizer, downloads its checkpoint from an
+S3 bucket that now returns 403, and openWakeWord saves the error page as the
+checkpoint.
+
+`verify_clips.py` checks the TTS says the phrase before training. It talks to
+a Wyoming Whisper server if one answers on `WHISPER_HOST:WHISPER_PORT`, and
+otherwise runs `openai/whisper-large-v3-turbo` in-process through
+transformers (first use downloads ~1.6 GB).
 
 Reference results from the six words trained on 2026-08-07 at `n_samples: 3000`,
 scored on 500 held-out synthetic clips at threshold 0.35:
@@ -101,6 +135,11 @@ If it dies without a traceback, that is the kernel, not a bug. Check:
 ```bash
 journalctl -k --since "1 hour ago" | grep -i "killed process"
 ```
+
+On the GPU build (RTX 5080, WSL2 with 15 GB visible) a full default run of
+`hey_claude` peaked at 8.7 GB RSS — mapped feature-bank pages included — and
+finished in under 9 minutes end to end: ~35 s of TTS, ~25 s of features, the
+rest classifier training.
 
 Lower `batch_n_per_class` before anything else; it cuts both the working set
 and the page-cache churn. Never run two words concurrently.
@@ -140,6 +179,10 @@ setup.sh              one-time environment build (idempotent)
 train_word.sh         train one word: <phrase> <model_name>
 train_remaining.sh    batch driver, strictly sequential
 retry_failed.sh       re-run a subset after a partial batch
+verify_clips.py       Whisper check that the TTS says the phrase
+eval_models.py        score models on one shared held-out set
+negatives/<name>.txt  per-word confusable phrases
+pronunciations.txt    CMUdict entries for words it lacks
 generate_samples_shim.py
                       adapts piper-sample-generator v3 to the v1/v2 API
                       openWakeWord expects, and resamples output to 16 kHz

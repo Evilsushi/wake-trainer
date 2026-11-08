@@ -1,0 +1,14 @@
+# Confusables for "okay gizmo". The first two are what Whisper heard in the
+# pre-training screen; the rest share the "okay g/k + vowel + s/z + m" shape.
+okay good night
+okay do some more
+okay give me more
+okay kiss me
+okay cosmo
+okay is mom
+okay this mode
+okay gizzard
+okay kismet
+okay give it
+okay is more
+okay good morning

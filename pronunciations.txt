@@ -1,0 +1,6 @@
+;;; Extra CMUdict-format entries, merged into `pronouncing` by sitecustomize.
+;;; Adversarial-negative generation needs ARPAbet for every word in the
+;;; phrase; anything missing from CMUdict otherwise falls back to
+;;; DeepPhonemizer, whose checkpoint download now returns 403. One entry per
+;;; line, word then phones, single space, as in CMUdict itself.
+ZIGGY Z IH1 G IY0

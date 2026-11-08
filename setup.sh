@@ -1,24 +1,35 @@
 #!/usr/bin/env bash
-# One-time setup for custom OpenWakeWord training (CPU).
+# One-time setup for custom OpenWakeWord training.
 # Creates a dedicated venv, clones the training repos, and downloads the
-# shared training data (~6-8 GB). Idempotent: safe to re-run after failures.
+# shared training data (~29 GB with MUSAN). Idempotent: safe to re-run after failures.
+#
+# Installs the CUDA torch stack by default (TORCH_INDEX=cu130: torch >= 2.9 is
+# the first with sm_120 kernels, which Blackwell / RTX 50xx needs). Set
+# TORCH_INDEX=cpu for a CPU-only box.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 log() { echo "[setup $(date +%H:%M:%S)] $*"; }
 
-if [[ ! -d .venv ]]; then
-  log "creating venv"
-  python3 -m venv .venv
+torch_index="https://download.pytorch.org/whl/${TORCH_INDEX:-cu130}"
+if [[ "${TORCH_INDEX:-cu130}" == cpu ]]; then ort=onnxruntime; else ort=onnxruntime-gpu; fi
+
+# Prefer uv: it needs no ensurepip (absent on stock Debian/Ubuntu pythons
+# without python3-venv) and resolves the torch stack far faster than pip.
+if command -v uv >/dev/null; then
+  [[ -d .venv ]] || { log "creating venv (uv)"; uv venv -q --python 3.14 .venv; }
+  pip() { uv pip "$1" -q --python .venv/bin/python "${@:2}"; }
+else
+  [[ -d .venv ]] || { log "creating venv"; python3 -m venv .venv; }
+  pip() { .venv/bin/pip "$1" -q "${@:2}"; }
+  pip install --upgrade pip
 fi
-pip=.venv/bin/pip
 py=.venv/bin/python
 
-log "installing python deps (torch cpu)"
-$pip -q install --upgrade pip
-$pip -q install torch --index-url https://download.pytorch.org/whl/cpu
-$pip -q install torchmetrics speechbrain audiomentations torch-audiomentations \
-  acoustics mutagen datasets soundfile scipy onnx onnxruntime tqdm pyyaml
+log "installing python deps (torch from $torch_index)"
+pip install torch torchaudio torchcodec --index-url "$torch_index"
+pip install torchmetrics speechbrain audiomentations torch-audiomentations \
+  acoustics mutagen datasets soundfile scipy onnx "$ort" tqdm pyyaml
 
 if [[ ! -d openWakeWord ]]; then
   log "cloning openWakeWord"
@@ -26,15 +37,15 @@ if [[ ! -d openWakeWord ]]; then
 fi
 # --no-deps: openwakeword pins speexdsp-ns (inference-only noise suppression)
 # which has no wheel for this python; training does not need it.
-$pip -q install --no-deps -e ./openWakeWord
-$pip -q install scikit-learn requests scipy tqdm
+pip install --no-deps -e ./openWakeWord
+pip install scikit-learn requests scipy tqdm
 
 if [[ ! -d piper-sample-generator ]]; then
   log "cloning piper-sample-generator"
   git clone -q https://github.com/rhasspy/piper-sample-generator
 fi
 # v3 is a proper package (piper-tts, webrtcvad, audiomentations deps)
-$pip -q install -e ./piper-sample-generator
+pip install -e ./piper-sample-generator
 # openWakeWord's train.py imports the old v1/v2 generate_samples module
 cp generate_samples_shim.py piper-sample-generator/generate_samples.py
 
@@ -44,11 +55,19 @@ log "post-install fixes"
 # deep-phonemizer: adversarial-negative generation falls back to it for any
 # word outside CMUdict, so "codex"/"grok" need it but "gemini"/"claude" do not.
 # Easy to miss - the first few wake words train fine without it.
-$pip -q install torchinfo pronouncing onnxscript deep-phonemizer
-# piper-sample-generator's torchaudio dep resolves to the CUDA build on pypi;
-# re-pin the torch stack to CPU wheels (must run after every package install
-# above). torchcodec is torchaudio's I/O backend now and has the same trap.
-$pip -q install --force-reinstall torch torchaudio torchcodec --index-url https://download.pytorch.org/whl/cpu
+# transformers: verify_clips.py's in-process Whisper when no Wyoming server answers
+pip install torchinfo pronouncing onnxscript deep-phonemizer transformers
+# Later installs can drag torch back to whatever pypi resolves (a different
+# CUDA build, or CPU); re-pin the torch stack to $torch_index (must run after
+# every package install above). torchcodec is torchaudio's I/O backend now and
+# has the same trap. Same for onnxruntime: anything depending on the plain CPU
+# package installs it alongside onnxruntime-gpu, and whichever wrote last owns
+# the shared module directory, silently dropping CUDAExecutionProvider.
+pip install --reinstall torch torchaudio torchcodec --index-url "$torch_index"
+if [[ "$ort" == onnxruntime-gpu ]]; then
+  pip uninstall onnxruntime 2>/dev/null || true
+  pip install --reinstall onnxruntime-gpu
+fi
 # acoustics uses scipy.special.sph_harm, removed in scipy 1.15
 $py - <<'PYEOF'
 from pathlib import Path
@@ -121,6 +140,30 @@ print("wrote 200 noise beds")
 PYEOF
 fi
 
+# Real background audio. The noise beds above are synthetic, and mixing
+# positives over real music, noise and babble is what teaches the model to stay
+# quiet through a TV. MUSAN (openslr 17, ~11 GB, 16 kHz wav, so no FFmpeg)
+# covers all three. Flattened into data/background/{music,noise,speech}
+# because openWakeWord lists background dirs non-recursively. MUSAN=0 skips.
+if [[ ! -d data/background && "${MUSAN:-1}" == 1 ]]; then
+  if [[ ! -d data/musan_dl/musan ]]; then
+    log "downloading MUSAN background audio (~11 GB)"
+    mkdir -p data/musan_dl
+    curl -fL -C - --progress-bar -o data/musan_dl/musan.tar.gz \
+      https://www.openslr.org/resources/17/musan.tar.gz
+    tar -xzf data/musan_dl/musan.tar.gz -C data/musan_dl
+    rm data/musan_dl/musan.tar.gz
+  fi
+  rm -rf data/background.tmp
+  for kind in music noise speech; do
+    mkdir -p "data/background.tmp/$kind"
+    find "data/musan_dl/musan/$kind" -name '*.wav' -exec mv -t "data/background.tmp/$kind" {} +
+  done
+  mv data/background.tmp data/background
+  rm -rf data/musan_dl
+  log "background audio: $(find data/background -name '*.wav' | wc -l) MUSAN clips"
+fi
+
 # torch_audiomentations calls torchaudio.info, removed in torchaudio's
 # torchcodec era; provide it via soundfile through sitecustomize
 cat > "$(ls -d .venv/lib/python*/site-packages)/sitecustomize.py" <<'PYEOF'
@@ -144,6 +187,33 @@ else:
             return _AudioMetaData(meta.samplerate, meta.frames, meta.channels, 16, "PCM_S")
 
         torchaudio.info = _info
+
+    # torchaudio.load goes through torchcodec too, which dlopens the system
+    # FFmpeg (libavutil.so.5x) and fails outright on a box without it. Every
+    # file this pipeline reads is a wav, so fall back to soundfile - sticky
+    # after the first failure, since each torchcodec attempt probes five
+    # FFmpeg majors before giving up.
+    _load = torchaudio.load
+    _use_soundfile = []
+
+    def _load_soundfile(uri, frame_offset=0, num_frames=-1, *args, **kwargs):
+        import soundfile
+        import torch
+
+        stop = None if num_frames is None or num_frames < 0 else frame_offset + num_frames
+        data, sr = soundfile.read(str(uri), start=frame_offset, stop=stop,
+                                  dtype="float32", always_2d=True)
+        return torch.from_numpy(data.T.copy()), sr
+
+    def _load_with_fallback(uri, *args, **kwargs):
+        if not _use_soundfile:
+            try:
+                return _load(uri, *args, **kwargs)
+            except (RuntimeError, OSError, ImportError):
+                _use_soundfile.append(True)
+        return _load_soundfile(uri, *args, **kwargs)
+
+    torchaudio.load = _load_with_fallback
 
 # Python 3.14 defaults POSIX multiprocessing to forkserver, which requires
 # picklable worker args; openWakeWord's DataLoader uses lambdas. Use fork.
@@ -169,6 +239,35 @@ try:
         return _export(*a, **kw)
 
     torch.onnx.export = _export_legacy
+except Exception:
+    pass
+
+# Words outside CMUdict send adversarial-negative generation to DeepPhonemizer,
+# whose checkpoint URL (public-asai-dl-models S3) now answers 403 - and
+# openWakeWord saves that error page as the .pt without checking. Merge the
+# repo's pronunciations.txt into pronouncing's dictionary instead, so known
+# words never reach that path. The venv sits in the repo, hence sys.prefix.
+try:
+    import io
+    import sys
+    from pathlib import Path
+
+    import pronouncing
+
+    _extra = Path(sys.prefix).parent / "pronunciations.txt"
+    _init_cmu = pronouncing.init_cmu
+
+    def _init_cmu_with_extra(filehandle=None):
+        if filehandle is None and pronouncing.pronunciations is None and _extra.exists():
+            import cmudict
+
+            with cmudict.dict_stream() as base:
+                # parse_cmu chokes on blank lines, so drop them
+                lines = (base.read() + b"\n" + _extra.read_bytes()).splitlines()
+                filehandle = io.BytesIO(b"\n".join(l for l in lines if l.strip()))
+        return _init_cmu(filehandle)
+
+    pronouncing.init_cmu = _init_cmu_with_extra
 except Exception:
     pass
 
